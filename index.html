@@ -351,6 +351,31 @@
 
       </div>
 
+      <div class="sec-label" style="margin-top:20px">Serviços de Terceiros (WT)</div>
+      <div class="tipo-grid" style="grid-template-columns:1fr">
+
+        <button class="tipo-btn" data-tipo="WT" onclick="selecionarTipo(this)">
+          <div class="t-icon" style="background:#ecfeff">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#0891b2" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/>
+            </svg>
+          </div>
+          <span class="t-label">Serviços de Terceiros</span>
+          <span class="t-dd">DD auto (02052 / 02053 / 02066)</span>
+        </button>
+
+      </div>
+
+      <div id="wt-cidade-wrap" style="display:none">
+        <div class="sec-label" style="margin-top:14px">Cidade (define o Depósito)</div>
+        <select class="verif-sel" id="wt-cidade-sel" style="width:100%" onchange="atualizarInfoBox()">
+          <option value="">Selecione a cidade...</option>
+          <option value="Curitiba">Curitiba — DT12</option>
+          <option value="Salto">Salto — DS04</option>
+          <option value="Recife">Recife — DP06</option>
+        </select>
+      </div>
+
       <div class="sec-label" style="margin-top:20px">Centros de Custo / UN / Valores</div>
       <div class="tbl-actions">
         <button class="btn-sm" onclick="addRow()">
@@ -514,11 +539,20 @@ const SUFIXO = {
   Unimed: {"51":"4.01.03.001.020","52":"5.01.01.001.012","53":"4.01.02.002.007"},
   Dental: {"51":"4.01.03.001.020","52":"5.01.01.001.012","53":"4.01.02.002.007"},
 };
+// Conta completa usada quando o CC cai em EXCECOES_5 / EXCECOES_5_CONTA.
+// Antes era montada como "5.01.01.001."+sufixo; generalizado para permitir
+// prefixos diferentes.
+const EXCECAO_CONTA = {
+  VA:     "5.01.01.001.007",
+  VT:     "5.01.01.001.006",
+  Unimed: "5.01.01.001.012",
+  Dental: "5.01.01.001.012",
+};
 const PRODUTO = {"51":"1 PEÇAS","52":"1 PEÇAS","53":"2 SERV"};
 const EXCECOES_5       = new Set(["51000","51200","51201","51400","53000"]);
 const EXCECOES_5_CONTA = new Set(["53900","53910","53920"]);
 const CC_COM_TRACO     = new Set(["52200"]);
-const UN_FIXA          = {"53211":"0500","53214":"0500","53215":"0500","51206":"0700","51200":"0700","51201":"0700","51204":"0700","51205":"0700","51300":"0700","51301":"0700","51302":"0700","53600":"0700"};
+const UN_FIXA          = {"53211":"0500","53213":"0500","53214":"0500","53215":"0500","53217":"0500","51206":"0700","51200":"0700","51201":"0700","51204":"0700","51205":"0700","51300":"0700","51301":"0700","51302":"0700","53600":"0700"};
 const PROJETO_CC       = {"51205":"02"};
 const SAP = { codImposto:"1933-005", deposito:"DT04", filial:"TECSUL LTDA", cfop:1933, utilizacao:"C - Serviço ADM" };
 const TIPOS_INFO = {
@@ -527,6 +561,36 @@ const TIPOS_INFO = {
   VA:     {dd:"DD01030",descricao:"VALE ALIMENTAÇÃO"},
   VT:     {dd:"DD00124",descricao:"VALE TRANSPORTE"},
 };
+// ── WT (Serviços de Terceiros) ──────────────────────────────
+// Aqui o DD não é escolhido manualmente: é derivado da conta, que por sua vez
+// vem do prefixo do CC (mesma regra dos benefícios). Confirmado em lançamentos
+// reais (wt.xlsx): 53xx → 4.01.02.001.005 · 51xx → 4.01.03.002.001 ·
+// CC exceção (ex: 51000) → 5.01.01.005.002. Cada conta tem um DD fixo.
+const WT_CONTA_POR_PREFIXO = { "51":"4.01.03.002.001", "53":"4.01.02.001.005" };
+const WT_CONTA_EXCECAO     = "5.01.01.005.002";
+const WT_DD_POR_CONTA = {
+  "4.01.02.001.005": {dd:"DD02053", descricao:"SERVICOS DE TERCEIROS CUSTO OPERACIONAL"},
+  "4.01.03.002.001": {dd:"DD02052", descricao:"SERVICOS DE TERCEIROS COMERCIAL"},
+  "5.01.01.005.002": {dd:"DD02066", descricao:"SERVICOS DE TERCEIROS ADMINISTRATIVO"},
+};
+function _derivarWT(cc){
+  const p2 = String(cc).substring(0,2);
+  let conta = WT_CONTA_POR_PREFIXO[p2] || null;
+  let un = p2==="52" ? "0700" : "0100";
+  const produto = PRODUTO[p2] || "1 PEÇAS";
+  if (EXCECOES_5.has(String(cc))) { conta = WT_CONTA_EXCECAO; un = "0700"; }
+  if (UN_FIXA[String(cc)]) un = UN_FIXA[String(cc)];
+  const info = conta ? WT_DD_POR_CONTA[conta] : null;
+  return { conta, un, produto, dd: info?info.dd:null, descricao: info?info.descricao:null };
+}
+// Depósito e Filial mudam junto com a cidade (confirmado no wt.xlsx: Curitiba
+// usa a Matriz, Salto e Recife usam suas próprias filiais).
+const CIDADES_WT = {
+  Curitiba: {deposito:"DT12", filial:"TECSUL EQUIPAMENTOS E SERVICOS - MATRIZ"},
+  Salto:    {deposito:"DS04", filial:"TECSUL EQUIPAMENTOS E SERVICOS - FILIAL SALTO"},
+  Recife:   {deposito:"DP06", filial:"TECSUL EQUIPAMENTOS E SERVICOS - FILIAL RECIFE"},
+};
+const SAP_WT = { codImposto:"1933-004", cstPisCofins:50, markup:1.0925 };
 
 let tipoAtual = "Unimed";
 let rowId = 0;
@@ -547,12 +611,10 @@ function _derivarBase(cc, tipo) {
   let un = p2==="52"?"0700":"0100";
   let produto = PRODUTO[p2]||"1 PEÇAS";
   if (EXCECOES_5.has(String(cc))) {
-    const s5={VA:"007",VT:"006",Unimed:"012",Dental:"012"};
-    conta="5.01.01.001."+s5[tipo]; un="0700";
+    conta=EXCECAO_CONTA[tipo]||null; un="0700";
   }
   if (EXCECOES_5_CONTA.has(String(cc))) {
-    const s5={VA:"007",VT:"006",Unimed:"012",Dental:"012"};
-    conta="5.01.01.001."+s5[tipo];
+    conta=EXCECAO_CONTA[tipo]||null;
   }
   if (UN_FIXA[String(cc)]) un=UN_FIXA[String(cc)];
   return {conta,un,produto};
@@ -605,13 +667,25 @@ function selecionarTipo(btn){
   document.querySelectorAll('.tipo-btn').forEach(b=>b.classList.remove('active'));
   btn.classList.add('active');
   tipoAtual=btn.dataset.tipo;
+  document.getElementById('wt-cidade-wrap').style.display = tipoAtual==='WT' ? 'block' : 'none';
   atualizarInfoBox();
 }
 
-const TIPO_COR = {Unimed:"#2563eb",Dental:"#16a34a",VA:"#ea580c",VT:"#7c3aed"};
+const TIPO_COR = {Unimed:"#2563eb",Dental:"#16a34a",VA:"#ea580c",VT:"#7c3aed",WT:"#0891b2"};
 function atualizarInfoBox(){
-  const t=TIPOS_INFO[tipoAtual];
   const cor=TIPO_COR[tipoAtual];
+  if (tipoAtual==='WT') {
+    const cidade=document.getElementById('wt-cidade-sel').value;
+    const dep=cidade?CIDADES_WT[cidade].deposito:null;
+    document.getElementById('info-box').innerHTML=
+      `<strong style="color:${cor}">DD automático por linha</strong><br>`+
+      `<span style="font-size:11px;color:var(--text3)">53xx → DD02053 (4.01.02.001.005) · 51xx → DD02052 (4.01.03.002.001) · CC 51000/exceção → DD02066 (5.01.01.005.002)</span><br>`+
+      (dep
+        ? `<span style="font-size:11px;color:var(--text3)">Depósito: <strong style="color:${cor}">${dep}</strong> (${cidade})</span>`
+        : `<span style="font-size:11px;color:var(--orange)">⚠️ Selecione a cidade para definir o Depósito</span>`);
+    return;
+  }
+  const t=TIPOS_INFO[tipoAtual];
   document.getElementById('info-box').innerHTML=
     `<strong style="color:${cor}">${t.dd}</strong> &nbsp;·&nbsp; ${t.descricao}<br>`+
     `<span style="font-size:11px;color:var(--text3)">51xx → 4.01.03 · 52xx → 5.01.01 · 53xx → 4.01.02</span>`;
@@ -708,7 +782,17 @@ function processarColagem(text){
 // ============================================================
 function gerarSAP(){
   const tbody=document.getElementById('linhas-tbody');
-  const tipo=TIPOS_INFO[tipoAtual];
+  const isWT=tipoAtual==='WT';
+  const tipo=isWT?null:TIPOS_INFO[tipoAtual];
+  let cidade=null;
+  if(isWT){
+    cidade=document.getElementById('wt-cidade-sel').value;
+    if(!cidade){alert('Selecione a cidade (define o Depósito) antes de gerar.');return;}
+  }
+  const deposito   = isWT ? CIDADES_WT[cidade].deposito : SAP.deposito;
+  const codImposto = isWT ? SAP_WT.codImposto           : SAP.codImposto;
+  const filial     = isWT ? CIDADES_WT[cidade].filial   : SAP.filial;
+  const cst        = isWT ? SAP_WT.cstPisCofins         : 98;
   const linhas=[]; const alertas=[];
   [...tbody.children].forEach((tr,idx)=>{
     const cc=tr.querySelector('[data-col="cc"]').value.trim();
@@ -718,11 +802,14 @@ function gerarSAP(){
     if(!cc){alertas.push(`Linha ${idx+1}: CC vazio`);return;}
     if(!vStr||parseFloat(vStr)<=0){alertas.push(`Linha ${idx+1}: valor inválido`);return;}
     const valor=parseFloat(parseFloat(vStr).toFixed(2));
-    const {conta,un:unAuto,produto}=derivar(cc,tipoAtual);
+    const {conta,un:unAuto,produto,dd,descricao} = isWT
+      ? _derivarWT(cc)
+      : {...derivar(cc,tipoAtual), dd:tipo.dd, descricao:tipo.descricao};
     const unFinal=UN_FIXA[String(cc)]||EXCECOES_5.has(String(cc))||String(cc).startsWith("52")
       ?unAuto:(unRaw?normalizarUN(unRaw):unAuto);
-    linhas.push({dd:tipo.dd,descricao:tipo.descricao,cc:ccSaida(cc),un:unFinal,valor,conta,produto,
-      projeto:PROJETO_CC[cc]||'',semConta:!conta});
+    const precoBruto = isWT ? Math.round(valor*SAP_WT.markup*10000)/10000 : valor;
+    linhas.push({dd:dd||'???',descricao:descricao||'',cc:ccSaida(cc),un:unFinal,valor,conta,produto,
+      projeto:PROJETO_CC[cc]||'00',semConta:!conta,deposito,codImposto,filial,cst,precoBruto});
   });
   if(alertas.length){alert('Corrija:\n'+alertas.join('\n'));return;}
   if(!linhas.length){alert('Nenhuma linha com dados.');return;}
@@ -736,14 +823,14 @@ function gerarSAP(){
     <tr>
       <td class="muted">${i+1}</td><td class="dd">${l.dd}</td><td>${l.descricao}</td>
       <td class="num">1</td><td class="num">${fmt(l.valor)}</td><td class="num">${fmt(l.valor)}</td>
-      <td class="muted">0</td><td class="num">${fmt(l.valor)}</td>
-      <td class="muted">${SAP.codImposto}</td><td class="muted">0</td><td class="muted">${SAP.deposito}</td>
+      <td class="muted">0</td><td class="num">${fmt(l.precoBruto)}</td>
+      <td class="muted">${l.codImposto}</td><td class="muted">0</td><td class="muted">${l.deposito}</td>
       <td class="${l.semConta?'warn':''}">${l.conta||'???'}</td>
       <td class="num">${l.cc}</td><td class="num">${l.un}</td><td>${l.produto}</td>
-      <td class="muted">Não</td><td class="${l.projeto?'proj':'muted'}">${l.projeto}</td>
+      <td class="muted">Não</td><td class="${l.projeto!=='00'?'proj':'muted'}">${l.projeto}</td>
       <td class="muted">0</td><td class="muted"></td><td class="num">${SAP.cfop}</td>
       <td class="muted"></td><td class="muted">${SAP.utilizacao}</td><td class="muted"></td>
-      <td class="num">98</td><td class="num">98</td><td class="muted"></td><td class="muted">${SAP.filial}</td>
+      <td class="num">${l.cst}</td><td class="num">${l.cst}</td><td class="muted"></td><td class="muted">${l.filial}</td>
     </tr>`).join('');
 
   const total=linhas.reduce((s,l)=>s+l.valor,0);
@@ -884,10 +971,10 @@ const CAB=[
 ];
 function buildRows(){
   return(window._sapLinhas||[]).map(l=>[
-    l.dd,l.descricao,1,l.valor,l.valor,0,l.valor,
-    SAP.codImposto,0,SAP.deposito,l.conta||'???',
+    l.dd,l.descricao,1,l.valor,l.valor,0,l.precoBruto,
+    l.codImposto,0,l.deposito,l.conta||'???',
     l.cc,l.un,l.produto,'Não',l.projeto,
-    0,null,SAP.cfop,null,SAP.utilizacao,null,98,98,null,SAP.filial
+    0,null,SAP.cfop,null,SAP.utilizacao,null,l.cst,l.cst,null,l.filial
   ]);
 }
 function copiarTSV(){
